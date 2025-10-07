@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Basit 2D Eğlenceli Oyun — GitHub İçin</title>
+  <style>
+    html,body{height:100%;margin:0;background:#0b1020;color:#fff;font-family:Inter,Segoe UI,Arial}
+    #gameWrap{display:flex;align-items:center;justify-content:center;height:100%;}
+    canvas{background:linear-gradient(180deg,#102033,#07101a);border:4px solid #0ea5a0;border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,.6)}
+    .overlay{position:absolute;left:50%;transform:translateX(-50%);top:18px;color:#cfece9;font-weight:600}
+    .hint{position:absolute;left:50%;transform:translateX(-50%);bottom:18px;color:#9dded7}
+  </style>
+</head>
+<body>
+  <div id="gameWrap">
+    <div style="position:relative;">
+      <div class="overlay" id="scoreText">Skor: 0</div>
+      <canvas id="game" width="800" height="480"></canvas>
+      <div class="hint">Kontroller: Sol/Sağ = Hareket, Yukarı / Space = Zıpla, R = Yeniden başla</div>
+    </div>
+  </div>
+
+<script>
+// Basit 2D oyun — amaç: yıldız topla, düşen engellerden kaç
+// Tek dosyalık, GitHub'a koyup hemen çalıştırabilirsiniz (double-click index.html veya GitHub Pages ile yayınla)
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+let keys = {};
+let score = 0;
+let gameOver = false;
+
+// Oyuncu
+const player = {
+  x: 60,
+  y: H - 80,
+  w: 40,
+  h: 56,
+  vx: 0,
+  vy: 0,
+  speed: 3.2,
+  jumpForce: -9,
+  grounded: false,
+  color: '#ffd166'
+};
+
+// Yerçekimi
+const GRAV = 0.45;
+
+// Zemin
+const ground = {y: H - 24};
+
+// Düşmanlar (ekranın üstünden aşağı doğru düşen daireler)
+let enemies = [];
+let stars = [];
+let spawnTimer = 0;
+let starTimer = 0;
+
+// Başlangıç
+reset();
+
+function reset(){
+  score = 0; gameOver = false;
+  player.x = 60; player.y = H - 80; player.vx = 0; player.vy = 0; player.grounded = false;
+  enemies = [];
+  stars = [];
+  spawnTimer = 0; starTimer = 0;
+  document.getElementById('scoreText').innerText = 'Skor: 0';
+}
+
+function spawnEnemy(){
+  const r = 14 + Math.random()*18;
+  const x = Math.random()*(W-2*r) + r;
+  enemies.push({x, y: -r-10, r, vy: 1.5 + Math.random()*2.5});
+}
+
+function spawnStar(){
+  const size = 12;
+  const x = 120 + Math.random()*(W-240);
+  const y = 80 + Math.random()*(H - 240);
+  stars.push({x,y,size, collected:false});
+}
+
+function update(){
+  if(gameOver) return;
+
+  // Input
+  if(keys['ArrowLeft'] || keys['a']) player.vx = -player.speed;
+  else if(keys['ArrowRight'] || keys['d']) player.vx = player.speed;
+  else player.vx = 0;
+
+  if((keys['ArrowUp'] || keys[' '] || keys['Spacebar']) && player.grounded){
+    player.vy = player.jumpForce; player.grounded = false;
+  }
+
+  // Fizik
+  player.vy += GRAV;
+  player.x += player.vx;
+  player.y += player.vy;
+
+  // Sınırlar
+  if(player.x < 8) player.x = 8;
+  if(player.x + player.w > W-8) player.x = W - 8 - player.w;
+
+  if(player.y + player.h >= ground.y){
+    player.y = ground.y - player.h; player.vy = 0; player.grounded = true;
+  }
+
+  // Düşman spawn hızlanır
+  spawnTimer += 1;
+  if(spawnTimer > Math.max(40, 120 - Math.floor(score/3))){ spawnEnemy(); spawnTimer = 0; }
+
+  // Yıldız spawn
+  starTimer += 1;
+  if(starTimer > 300){ spawnStar(); starTimer = 0; }
+
+  // Düşmanları güncelle
+  for(let i = enemies.length-1; i>=0; i--){
+    const e = enemies[i];
+    e.y += e.vy + Math.sin(e.y*0.02)*0.5; // hafif dalgalanma
+
+    // Çarpışma oyuncu - düşman
+    if(circleRectCollide(e.x,e.y,e.r, player.x, player.y, player.w, player.h)){
+      // kaybettin
+      gameOver = true; 
+    }
+
+    // ekrandan çıktıysa
+    if(e.y - e.r > H + 50){ enemies.splice(i,1); score += 1; updateScore(); }
+  }
+
+  // Yıldız toplama
+  for(let i = stars.length-1; i>=0; i--){
+    const s = stars[i];
+    if(!s.collected && rectCollide(player.x, player.y, player.w, player.h, s.x-6, s.y-6, s.size+12, s.size+12)){
+      s.collected = true; score += 5; updateScore(); stars.splice(i,1);
+    }
+  }
+}
+
+function updateScore(){ document.getElementById('scoreText').innerText = 'Skor: ' + score; }
+
+function circleRectCollide(cx,cy,cr, rx,ry,rw,rh){
+  // En yakın nokta yöntemi
+  const nearestX = Math.max(rx, Math.min(cx, rx+rw));
+  const nearestY = Math.max(ry, Math.min(cy, ry+rh));
+  const dx = cx - nearestX; const dy = cy - nearestY;
+  return (dx*dx + dy*dy) <= cr*cr;
+}
+function rectCollide(x1,y1,w1,h1, x2,y2,w2,h2){
+  return !(x2 > x1 + w1 || x2 + w2 < x1 || y2 > y1 + h1 || y2 + h2 < y1);
+}
+
+function draw(){
+  // arka plan
+  ctx.clearRect(0,0,W,H);
+
+  // Hafif yıldız arka plan
+  for(let i=0;i<40;i++){
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    const x = (i*53) % W; const y = (i*37) % H; 
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  // Zemin
+  ctx.fillStyle = '#09323a';
+  ctx.fillRect(0, ground.y, W, H-ground.y);
+
+  // Player
+  ctx.save();
+  ctx.fillStyle = player.color;
+  roundedRect(ctx, player.x, player.y, player.w, player.h, 8);
+  ctx.fill();
+  // yüz (gözler simple)
+  ctx.fillStyle = '#0b1020';
+  ctx.fillRect(player.x + 8, player.y + 14, 6, 6);
+  ctx.fillRect(player.x + player.w - 14, player.y + 14, 6, 6);
+  ctx.restore();
+
+  // Enemies
+  for(const e of enemies){
+    // gölge
+    ctx.beginPath(); ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.ellipse(e.x+6, e.y+6, e.r+4, e.r/2+3, 0,0,Math.PI*2); ctx.fill();
+    // gövde
+    ctx.beginPath(); ctx.fillStyle = '#ef476f'; ctx.ellipse(e.x, e.y, e.r, e.r, 0,0,Math.PI*2); ctx.fill();
+    // göz
+    ctx.beginPath(); ctx.fillStyle = '#fff'; ctx.ellipse(e.x - e.r*0.25, e.y - e.r*0.15, e.r*0.22, e.r*0.22, 0,0,Math.PI*2); ctx.fill();
+  }
+
+  // Stars
+  for(const s of stars){
+    ctx.save(); ctx.translate(s.x, s.y);
+    drawStar(ctx, 0,0,5, s.size/2, s.size/4);
+    ctx.restore();
+  }
+
+  // Game Over
+  if(gameOver){
+    ctx.fillStyle = 'rgba(2,6,23,0.7)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 36px Arial'; ctx.textAlign='center';
+    ctx.fillText('Kaybettin!', W/2, H/2 - 10);
+    ctx.font = '18px Arial'; ctx.fillText('R ile tekrar deneyebilirsin — Skor: ' + score, W/2, H/2 + 24);
+  }
+}
+
+function drawStar(ctx,x,y,points,outerR,innerR){
+  ctx.beginPath();
+  for(let i=0;i<2*points;i++){
+    const r = (i%2===0)?outerR:innerR;
+    const a = Math.PI * i / points;
+    const sx = x + Math.cos(a) * r, sy = y + Math.sin(a) * r;
+    if(i===0) ctx.moveTo(sx,sy); else ctx.lineTo(sx,sy);
+  }
+  ctx.closePath(); ctx.fillStyle='#ffd166'; ctx.fill();
+}
+
+function roundedRect(ctx, x, y, w, h, r){
+  ctx.beginPath(); ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+
+// Oyun döngüsü
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// Input eventleri
+window.addEventListener('keydown', (e)=>{
+  keys[e.key] = true;
+  if(e.key.toLowerCase() === 'r') reset();
+});
+window.addEventListener('keyup', (e)=>{ keys[e.key] = false; });
+
+// Fareyle zıplatma (dokunmatik uyumluluk)
+canvas.addEventListener('pointerdown', (e)=>{
+  if(!gameOver) player.vy = player.jumpForce; else reset();
+});
+
+// Başlat
+loop();
+
+</script>
+</body>
+</html>
